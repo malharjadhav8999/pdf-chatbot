@@ -1,20 +1,56 @@
 # 🚀 Deploying PDF Chatbot
 
-This app runs as a **persistent Node server**, so deploy it to a host that keeps a
-process alive — **Render** or **Railway** (both have free tiers). The repo already
-includes everything needed (`render.yaml`, `.npmrc`, `.node-version`).
+This app can deploy **two ways**, and the code auto-detects which one:
 
-> **Why not Vercel?** Vercel is serverless: each API route runs as a separate,
-> stateless function. This app keeps the uploaded PDF's vectors **in memory** and
-> runs the embedding model **on local disk** — both need one long-lived process.
-> On Vercel the `/api/chat` function wouldn't see what `/api/ingest` stored, and the
-> embedding model wouldn't load. Render/Railway run a real server, so it just works.
-> (To target Vercel, you'd swap the in-memory store + local embeddings for a
-> serverless vector DB like Upstash Vector — a separate refactor.)
+| Host | Backend used | Best for | Cold start |
+| --- | --- | --- | --- |
+| **Vercel** (serverless) | **Upstash Vector** (set its env vars) | fast, always-warm, no model download | ~1 s |
+| **Render / Railway** (persistent server) | in-memory + local model | zero external services | ~30–50 s (free tier sleeps) |
+
+The switch is automatic: **if `UPSTASH_VECTOR_REST_URL` + `UPSTASH_VECTOR_REST_TOKEN`
+are present, it uses Upstash; otherwise it uses the in-memory store + local model.**
+New to serverless? Read **[SERVERLESS.md](./SERVERLESS.md)** first.
 
 ---
 
-## Option A — Render (recommended, uses the included `render.yaml`)
+## Option A — Vercel + Upstash (recommended: fast, no cold-start lag)
+
+Vercel is serverless, so the app needs an external store that survives between
+function calls. **Upstash Vector** (free) provides both the storage *and* the
+embeddings, so nothing heavy runs in the Vercel function.
+
+### Step 1 — Create a free Upstash Vector index
+1. Go to **<https://console.upstash.com>** → sign up (free, GitHub login works).
+2. **Vector** → **Create Index**.
+3. Give it a name. For **Embedding Model**, pick one (e.g. **`BAAI/bge-small-en-v1.5`**).
+   *(Choosing a model lets the app upsert raw text and have Upstash embed it.)*
+4. Region: pick one near you. Plan: **Free**.
+5. Open the index → **Details/REST** and copy:
+   - **`UPSTASH_VECTOR_REST_URL`**
+   - **`UPSTASH_VECTOR_REST_TOKEN`**
+
+### Step 2 — Deploy on Vercel
+1. Go to **<https://vercel.com/new>** → **Import** your GitHub repo
+   `malharjadhav8999/pdf-chatbot`.
+2. Framework preset auto-detects **Next.js**. Leave build settings as-is.
+3. Under **Environment Variables**, add **three**:
+   | Name | Value |
+   | --- | --- |
+   | `GROQ_API_KEY` | your `gsk_...` key |
+   | `UPSTASH_VECTOR_REST_URL` | from Step 1 |
+   | `UPSTASH_VECTOR_REST_TOKEN` | from Step 1 |
+4. Click **Deploy**. After ~1–2 min you get a URL like
+   `https://pdf-chatbot-xxxx.vercel.app`.
+
+That URL is fast on every visit — no sleeping, no model download.
+
+> If you deploy **without** the Upstash vars, the build still succeeds but the app
+> will fail at chat time ("No PDF found"), because the in-memory store can't be
+> shared across Vercel's separate functions. The Upstash vars are what make Vercel work.
+
+---
+
+## Option B — Render (persistent server, uses the included `render.yaml`)
 
 1. Push your code to GitHub (already done: `github.com/malharjadhav8999/pdf-chatbot`).
 2. Go to **<https://dashboard.render.com>** → **New +** → **Blueprint**.
@@ -34,7 +70,7 @@ includes everything needed (`render.yaml`, `.npmrc`, `.node-version`).
 
 ---
 
-## Option B — Railway
+## Option C — Railway
 
 1. Go to **<https://railway.app>** → **New Project** → **Deploy from GitHub repo**.
 2. Select the `pdf-chatbot` repo. Railway auto-detects Next.js (Nixpacks):
@@ -46,7 +82,7 @@ includes everything needed (`render.yaml`, `.npmrc`, `.node-version`).
 
 ---
 
-## Option C — Any Node host / VM / Docker
+## Option D — Any Node host / VM / Docker
 
 The app is a standard Next.js server:
 
@@ -64,9 +100,11 @@ Put it behind a reverse proxy (nginx/Caddy) for HTTPS if self-hosting.
 
 | Variable | Required | Default |
 | --- | --- | --- |
-| `GROQ_API_KEY` | ✅ Yes | — |
+| `GROQ_API_KEY` | ✅ Always | — |
+| `UPSTASH_VECTOR_REST_URL` | ✅ On Vercel/serverless | — (unset → in-memory backend) |
+| `UPSTASH_VECTOR_REST_TOKEN` | ✅ On Vercel/serverless | — |
 | `GROQ_MODEL` | No | `llama-3.3-70b-versatile` |
-| `EMBEDDING_MODEL` | No | `Xenova/all-MiniLM-L6-v2` |
+| `EMBEDDING_MODEL` | No (in-memory backend only) | `Xenova/all-MiniLM-L6-v2` |
 
 ---
 
