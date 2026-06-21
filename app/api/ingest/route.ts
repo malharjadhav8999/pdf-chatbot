@@ -64,7 +64,11 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[ingest] error:", err);
     return NextResponse.json(
-      { error: "Failed to process the PDF." },
+      {
+        error: "Failed to process the PDF.",
+        detail: err instanceof Error ? err.message : String(err),
+        stage: "ingest",
+      },
       { status: 500 }
     );
   }
